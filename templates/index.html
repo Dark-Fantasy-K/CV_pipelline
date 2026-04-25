@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YOLOv8 Pipeline</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;
+    --border:#2a2a3a;--text:#e8e8f0;--text-dim:#8888a0;
+    --accent:#6ee7b7;--accent-dim:#2d6a5a;--accent-glow:rgba(110,231,183,.15);
+    --orange:#fb923c;--blue:#60a5fa;--purple:#c084fc;--yellow:#facc15;
+    --danger:#f87171;--radius:12px;
+  }
+  body{
+    font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);
+    min-height:100vh;display:flex;align-items:flex-start;justify-content:center;
+    padding:32px 16px;overflow-x:hidden;
+  }
+  body::before{
+    content:'';position:fixed;inset:0;
+    background-image:
+      linear-gradient(rgba(110,231,183,.03) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(110,231,183,.03) 1px,transparent 1px);
+    background-size:60px 60px;pointer-events:none;z-index:0;
+  }
+  .container{position:relative;z-index:1;width:100%;max-width:760px}
+
+  /* header */
+  .header{text-align:center;margin-bottom:36px}
+  .header .badge{
+    display:inline-block;font-family:'JetBrains Mono',monospace;
+    font-size:11px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--accent);background:var(--accent-glow);
+    border:1px solid var(--accent-dim);padding:4px 14px;border-radius:100px;margin-bottom:14px;
+  }
+  .header h1{font-size:30px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+  .header p{color:var(--text-dim);font-size:13px;line-height:1.5}
+
+  /* upload */
+  .upload-zone{
+    border:2px dashed var(--border);border-radius:var(--radius);
+    background:var(--surface);padding:44px 24px;text-align:center;
+    cursor:pointer;transition:all .25s;
+  }
+  .upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:var(--accent-glow)}
+  .upload-zone .icon{font-size:44px;margin-bottom:10px;display:block}
+  .upload-zone .label{font-size:15px;font-weight:500;margin-bottom:4px}
+  .upload-zone .hint{font-size:12px;color:var(--text-dim)}
+  .upload-zone input{display:none}
+
+  /* preview */
+  .preview-wrapper{display:none;margin-top:18px}
+  .preview-wrapper.show{display:block}
+  .preview-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .preview-card img{width:100%;max-height:380px;object-fit:contain;background:#000;display:block}
+  .preview-info{
+    padding:10px 16px;display:flex;align-items:center;justify-content:space-between;
+    font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;
+  }
+  .btn-clear{background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;font-family:inherit;text-decoration:underline}
+
+  /* button */
+  .btn-predict{
+    display:none;width:100%;margin-top:14px;padding:13px;
+    background:var(--accent);color:#0a0a0f;border:none;border-radius:var(--radius);
+    font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;
+    cursor:pointer;transition:all .2s;
+  }
+  .btn-predict.show{display:block}
+  .btn-predict:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 6px 24px rgba(110,231,183,.25)}
+  .btn-predict:active{transform:translateY(0)}
+  .btn-predict:disabled{opacity:.6;cursor:not-allowed;transform:none!important;filter:none!important;box-shadow:none!important}
+
+  /* error */
+  .error-box{display:none;margin-top:14px;padding:10px 16px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:var(--radius);color:var(--danger);font-size:13px}
+  .error-box.show{display:block}
+
+  /* results */
+  .results-section{display:none;margin-top:28px}
+  .results-section.show{display:block}
+
+  /* annotated image */
+  .annotated-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+  .annotated-card img{width:100%;display:block;background:#000}
+
+  /* stats bar */
+  .stats-bar{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .chip{
+    display:inline-flex;align-items:center;gap:5px;
+    font-family:'JetBrains Mono',monospace;font-size:11px;
+    padding:4px 11px;border-radius:100px;border:1px solid var(--border);background:var(--surface);
+  }
+  .chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+
+  /* section card */
+  .section-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    margin-bottom:16px;overflow:hidden;
+  }
+  .section-header{
+    display:flex;align-items:center;gap:8px;
+    padding:12px 16px;border-bottom:1px solid var(--border);
+    font-family:'JetBrains Mono',monospace;font-size:12px;
+    letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);
+  }
+  .section-header .icon{font-size:16px}
+  .section-body{padding:12px 16px}
+
+  /* detection row */
+  .det-row{
+    display:flex;align-items:center;gap:10px;
+    padding:8px 12px;border-radius:8px;margin-bottom:4px;
+    background:var(--surface2);
+    animation:fadeIn .3s ease both;
+  }
+  .det-row:nth-child(2){animation-delay:.04s}
+  .det-row:nth-child(3){animation-delay:.08s}
+  .det-row:nth-child(4){animation-delay:.12s}
+  .det-row:nth-child(n+5){animation-delay:.16s}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+  .det-tag{
+    padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace;
+    font-size:11px;font-weight:600;flex-shrink:0;
+  }
+  .det-tag.person{background:rgba(110,231,183,.15);color:var(--accent)}
+  .det-tag.car{background:rgba(251,146,60,.15);color:var(--orange)}
+  .det-tag.truck{background:rgba(96,165,250,.15);color:var(--blue)}
+  .det-tag.bus{background:rgba(250,204,21,.15);color:var(--yellow)}
+  .det-tag.motorcycle{background:rgba(192,132,252,.15);color:var(--purple)}
+  .det-tag.other{background:rgba(160,160,180,.15);color:var(--text-dim)}
+
+  .det-detail{flex:1;font-size:13px;min-width:0}
+  .det-conf{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim);flex-shrink:0}
+
+  /* keypoints toggle */
+  .kp-toggle{
+    background:none;border:1px solid var(--border);color:var(--text-dim);
+    font-size:11px;font-family:'JetBrains Mono',monospace;
+    padding:2px 8px;border-radius:6px;cursor:pointer;margin-left:auto;
+  }
+  .kp-toggle:hover{border-color:var(--accent);color:var(--accent)}
+  .kp-detail{display:none;margin-top:6px;padding:6px 10px;background:var(--bg);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);line-height:1.6}
+  .kp-detail.show{display:block}
+
+  .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(10,10,15,.2);border-top-color:#0a0a0f;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .footer{margin-top:36px;text-align:center;font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <span class="badge">YOLOv8s · Pipeline</span>
+    <h1>多目标分类处理</h1>
+    <p>人 → 姿态估计 &nbsp;|&nbsp; 车辆 → 计数跟踪 &nbsp;|&nbsp; 其他 → 透传</p>
+  </div>
+
+  <div class="upload-zone" id="uploadZone">
+    <span class="icon">📷</span>
+    <div class="label">点击或拖拽上传图片</div>
+    <div class="hint">支持 JPG / PNG / WEBP</div>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <div class="preview-wrapper" id="previewWrapper">
+    <div class="preview-card">
+      <img id="previewImg" src="" alt="preview">
+      <div class="preview-info">
+        <span id="fileName">—</span>
+        <button class="btn-clear" id="btnClear">清除</button>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn-predict" id="btnPredict">开始检测</button>
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="results-section" id="resultsSection">
+    <div class="annotated-card"><img id="annotatedImg" src="" alt="annotated"></div>
+
+    <div class="stats-bar" id="statsBar"></div>
+
+    <!-- 人 - 姿态估计 -->
+    <div class="section-card" id="poseSection" style="display:none">
+      <div class="section-header"><span class="icon">🏃</span> 姿态估计 · Person</div>
+      <div class="section-body" id="poseBody"></div>
+    </div>
+
+    <!-- 车辆计数 -->
+    <div class="section-card" id="vehicleSection" style="display:none">
+      <div class="section-header"><span class="icon">🚗</span> 车辆计数 · Vehicle</div>
+      <div class="section-body" id="vehicleBody"></div>
+    </div>
+
+    <!-- 其他 -->
+    <div class="section-card" id="otherSection" style="display:none">
+      <div class="section-header"><span class="icon">📦</span> 其他目标</div>
+      <div class="section-body" id="otherBody"></div>
+    </div>
+  </div>
+
+  <div class="footer">Powered by Ultralytics YOLOv8 &amp; Flask Pipeline</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const uploadZone=$('uploadZone'),fileInput=$('fileInput'),previewWrapper=$('previewWrapper'),
+      previewImg=$('previewImg'),fileNameEl=$('fileName'),btnClear=$('btnClear'),
+      btnPredict=$('btnPredict'),errorBox=$('errorBox'),resultsSection=$('resultsSection'),
+      annotatedImg=$('annotatedImg'),statsBar=$('statsBar'),
+      poseSection=$('poseSection'),poseBody=$('poseBody'),
+      vehicleSection=$('vehicleSection'),vehicleBody=$('vehicleBody'),
+      otherSection=$('otherSection'),otherBody=$('otherBody');
+
+let selectedFile=null;
+
+uploadZone.addEventListener('click',()=>fileInput.click());
+uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.classList.add('dragover')});
+uploadZone.addEventListener('dragleave',()=>uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop',e=>{e.preventDefault();uploadZone.classList.remove('dragover');if(e.dataTransfer.files.length)handleFile(e.dataTransfer.files[0])});
+fileInput.addEventListener('change',()=>{if(fileInput.files.length)handleFile(fileInput.files[0])});
+
+function handleFile(f){
+  if(!f.type.startsWith('image/')){showError('请上传图片文件');return}
+  selectedFile=f;
+  const r=new FileReader();
+  r.onload=e=>{
+    previewImg.src=e.target.result;
+    fileNameEl.textContent=f.name+' ('+(f.size/1024).toFixed(1)+' KB)';
+    previewWrapper.classList.add('show');uploadZone.style.display='none';
+    btnPredict.classList.add('show');hideError();resultsSection.classList.remove('show');
+  };
+  r.readAsDataURL(f);
+}
+btnClear.addEventListener('click',()=>{
+  selectedFile=null;fileInput.value='';previewWrapper.classList.remove('show');
+  uploadZone.style.display='';btnPredict.classList.remove('show');
+  resultsSection.classList.remove('show');hideError();
+});
+
+btnPredict.addEventListener('click',async()=>{
+  if(!selectedFile)return;
+  btnPredict.disabled=true;btnPredict.innerHTML='<span class="spinner"></span>处理中…';
+  hideError();resultsSection.classList.remove('show');
+
+  const fd=new FormData();fd.append('image',selectedFile);
+  try{
+    const resp=await fetch('/predict',{method:'POST',body:fd});
+    const data=await resp.json();
+    if(data.error){showError(data.error);return}
+    renderResults(data);
+  }catch(err){showError('请求失败：'+err.message)}
+  finally{btnPredict.disabled=false;btnPredict.textContent='开始检测'}
+});
+
+function renderResults(data){
+  annotatedImg.src=data.annotated_img;
+
+  // stats chips
+  let chips=`<span class="chip"><span class="dot" style="background:var(--accent)"></span>⚡ ${data.latency_ms} ms</span>`;
+  chips+=`<span class="chip"><span class="dot" style="background:var(--orange)"></span>🎯 ${data.total_detections} 个目标</span>`;
+  statsBar.innerHTML=chips;
+
+  // ---- Pose ----
+  const pose=data.PersonPoseHandler;
+  if(pose && pose.person_count>0){
+    poseSection.style.display='';
+    let html='';
+    pose.persons.forEach((p,i)=>{
+      const id='kp_'+i;
+      html+=`<div class="det-row">
+        <span class="det-tag person">person</span>
+        <span class="det-detail">姿态 #${i+1} · ${Object.values(p.keypoints).filter(k=>k.confidence>.3).length}/17 关键点</span>
+        <span class="det-conf">${(p.confidence*100).toFixed(1)}%</span>
+        <button class="kp-toggle" onclick="toggleKp('${id}')">详情</button>
+      </div>
+      <div class="kp-detail" id="${id}">${Object.entries(p.keypoints).map(([n,k])=>
+        `${n}: (${k.x}, ${k.y}) ${(k.confidence*100).toFixed(0)}%`
+      ).join('<br>')}</div>`;
+    });
+    poseBody.innerHTML=html;
+  }else{poseSection.style.display='none'}
+
+  // ---- Vehicle ----
+  const veh=data.VehicleCountHandler;
+  if(veh && veh.current_total>0){
+    vehicleSection.style.display='';
+    let html=`<div style="margin-bottom:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim)">
+      当前帧: ${veh.current_total} · 活跃轨迹: ${veh.active_tracks}</div>`;
+    veh.vehicles.forEach(v=>{
+      const cls=v.class;
+      const tagCls=['car','truck','bus','motorcycle'].includes(cls)?cls:'other';
+      html+=`<div class="det-row">
+        <span class="det-tag ${tagCls}">${cls}</span>
+        <span class="det-detail">#${v.track_id} [${v.bbox.map(b=>Math.round(b)).join(', ')}]</span>
+        <span class="det-conf">${(v.confidence*100).toFixed(1)}%</span>
+      </div>`;
+    });
+    vehicleBody.innerHTML=html;
+  }else{vehicleSection.style.display='none'}
+
+  // ---- Other (unhandled + default) ----
+  const other=data.unhandled||[];
+  const def=data.DefaultHandler;
+  const allOther=[...other,...(def?def.items||[]:[])];
+  if(allOther.length>0){
+    otherSection.style.display='';
+    otherBody.innerHTML=allOther.map(d=>
+      `<div class="det-row">
+        <span class="det-tag other">${d.class}</span>
+        <span class="det-detail">[${d.bbox.map(b=>Math.round(b)).join(', ')}]</span>
+        <span class="det-conf">${(d.confidence*100).toFixed(1)}%</span>
+      </div>`
+    ).join('');
+  }else{otherSection.style.display='none'}
+
+  resultsSection.classList.add('show');
+}
+
+function toggleKp(id){document.getElementById(id).classList.toggle('show')}
+function showError(msg){errorBox.textContent=msg;errorBox.classList.add('show')}
+function hideError(){errorBox.classList.remove('show')}
+</script>
+</body>
+</html>
